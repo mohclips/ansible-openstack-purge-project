@@ -1,0 +1,224 @@
+# vim: noai:ts=2:sw=2:et
+---
+
+- name: "Purge matching Servers, Subnets, Networks, Routers from OpenStack"
+
+  hosts: localhost
+  connection: local
+
+  become: no
+
+  gather_facts: no
+
+  vars:
+    banner: |
+      #########################################################################################
+      # Deleting all objects that match {{ my_regex_filter }}
+      #########################################################################################
+
+  vars_prompt:
+    - name: "my_regex_filter"
+      prompt: "Enter your regex to match against: "
+      private: no
+      default: '^nx2-.*'
+    - name: "pause_secs"
+      prompt: "Enter pause time (to allow Openstack to catch up): "
+      private: no
+      default: '5'
+
+
+  tasks:
+
+    - block:
+      - name: "Test openstack-client is installed"
+        command: openstack --version
+        ignore_errors: yes
+        register: cmd
+
+      - fail: msg="Can't find openstack client - needed for router access"
+        when: cmd|failed
+
+      - debug: msg="{{ banner.split('\n') }}"
+#"
+      - fail:
+        when: my_regex_filter == ""
+
+      tags: always
+
+
+    #-----------------------------------------------------------------
+    - block:
+
+      - name: "Get Server Facts"
+        os_server_facts: 
+        
+      - set_fact:
+          servers: "{{ openstack_servers | selectattr('name', 'match', my_regex_filter ) | default([]) | list }}"
+
+      - name: "Delete Servers"
+        os_server:
+          name: "{{ item }}"
+          state: absent
+        with_items: 
+            - "{{ servers | map(attribute='name') | list }}"
+        async: 600
+        poll: 0
+        register: sleeper
+
+  #    - debug: var=sleeper
+
+      - name: 'Check for task to complete'
+        async_status: jid={{ sleeper.ansible_job_id }}
+        register: job_result
+        until: job_result.finished
+        retries: 30
+        when: sleeper.changed
+
+      - name: "wait for Openstack to catch up" 
+        pause:
+          seconds: "{{ pause_secs }}"
+
+      tags: t_delete_servers
+
+    #-----------------------------------------------------------------
+
+    - block:
+
+      - name: "Get Router Facts"
+        command: openstack router list -f json
+        register: openstack_routers
+        
+      - set_fact:
+          routers: "{{ openstack_routers.stdout | from_json | selectattr('Name', 'match', my_regex_filter ) | default([]) | list }}"
+
+      - name: "Delete Routers"
+        os_router:
+          name: "{{ item }}"
+          state: absent
+        with_items: 
+            - "{{ routers | map(attribute='Name') | list }}"
+        async: 600
+        poll: 0
+        register: sleeper
+
+  #    - debug: var=sleeper
+
+      - name: 'Check for task to complete'
+        async_status: jid={{ sleeper.ansible_job_id }}
+        register: job_result
+        until: job_result.finished
+        retries: 30
+        when: sleeper.changed
+
+      - name: "wait for Openstack to catch up" 
+        pause:
+          seconds: "{{ pause_secs }}"
+      
+      tags: t_delete_routers
+
+     #-----------------------------------------------------------------
+    - block:
+      - name: "Get Subnet Facts"
+        os_subnets_facts: 
+       
+      - set_fact:
+          subnets: "{{ openstack_subnets | selectattr('name', 'match', my_regex_filter ) | default([]) | list }}"
+
+      - name: "Delete Subnets"
+        os_subnet:
+          name: "{{ item }}"
+          state: absent
+        with_items: 
+            - "{{ subnets | map(attribute='name') | list }}"
+        async: 600
+        poll: 0
+        register: sleeper
+
+  #    - debug: var=sleeper
+
+      - name: 'Check for task to complete'
+        async_status: jid={{ sleeper.ansible_job_id }}
+        register: job_result
+        until: job_result.finished
+        retries: 30
+        when: sleeper.changed
+
+      - name: "wait for Openstack to catch up" 
+        pause:
+          seconds: "{{ pause_secs }}"
+    
+      tags: t_delete_subnets
+
+    #-----------------------------------------------------------------
+    - block:
+
+      - name: "Get Network Facts"
+        os_networks_facts: 
+ 
+      - set_fact:
+          networks: "{{ openstack_networks | selectattr('name', 'match', my_regex_filter ) | default([]) | list }}"
+
+      - name: "Delete Networks"
+        os_network:
+          name: "{{ item }}"
+          state: absent
+        with_items: 
+            - "{{ networks | map(attribute='name') | list }}"
+        async: 600
+        poll: 0
+        register: sleeper
+
+  #    - debug: var=sleeper
+
+      - name: 'Check for task to complete'
+        async_status: jid={{ sleeper.ansible_job_id }}
+        register: job_result
+        until: job_result.finished
+        retries: 30
+        when: sleeper.changed
+
+      - name: "wait for Openstack to catch up" 
+        pause:
+          seconds: "{{ pause_secs }}"
+
+      tags: t_delete_networks
+
+
+   #-----------------------------------------------------------------
+
+    - block:
+
+      - name: "Get Security Group Facts"
+        command: openstack security group list -f json
+        register: openstack_sec_groups
+
+      - set_fact:
+          sec_groups: "{{ openstack_sec_groups.stdout | from_json | selectattr('Name', 'match', my_regex_filter ) | default([]) | list }}"
+      - name: "Delete Security Groups"
+        os_security_group:
+          name: "{{ item }}"
+          state: absent
+        with_items: 
+            - "{{ sec_groups | map(attribute='Name') | list }}"
+        async: 600
+        poll: 0
+        register: sleeper
+
+  #    - debug: var=sleeper
+
+      - name: 'Check for task to complete'
+        async_status: jid={{ sleeper.ansible_job_id }}
+        register: job_result
+        until: job_result.finished
+        retries: 30
+        when: sleeper.changed
+
+      - name: "wait for Openstack to catch up" 
+        pause:
+          seconds: "{{ pause_secs }}"
+
+      tags: t_delete_sec_groups
+
+   #-----------------------------------------------------------------
+
+
